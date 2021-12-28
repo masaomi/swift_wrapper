@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 # encoding: utf-8
-# Version = '20211228-105030'
+# Version = '20211228-140845'
 # ref: https://www.dkrz.de/up/systems/swift/swift
 
 help =->() do
@@ -8,6 +8,7 @@ help =->() do
   usage:
    upload:   #{File.basename(__FILE__)} [target file] [target container] (--keep-split)
    download: #{File.basename(__FILE__)} [target container] ([target object (full path)])
+   download: #{File.basename(__FILE__)} [target container] ([top directory])
   e.g.
    * swift upload: #{File.basename(__FILE__)} text.txt masa-backup
    * swift download: #{File.basename(__FILE__)} masa-backup text.txt 
@@ -28,12 +29,6 @@ unless target1=ARGV[0]
 end
 target2=ARGV[1]
 keep_split = ARGV.index("--keep-split")
-log_file = "swift_copy_#{target1.gsub(/\//, '_')}2#{target2.gsub(/\//, '_')}_#{Time.now.strftime("%Y%m%d_%H%M%S")}.log"
-log_out = open(log_file, "w")
-log_puts =-> (arg) do
-  puts arg
-  log_out.puts arg
-end
 
 container_list = IO.popen("swift list") do |io|
   list = {}
@@ -64,6 +59,14 @@ else
   help.()
 end
 
+log_file = "swift_#{mode}_#{target1.gsub(/\//, '_')}_#{target2.gsub(/\//, '_')}_#{Time.now.strftime("%Y%m%d_%H%M%S")}.log"
+log_out = open(log_file, "w")
+log_out.puts "# #{File.basename(__FILE__)} #{ARGV.join(" ")}"
+log_puts =-> (arg) do
+  puts arg
+  log_out.puts arg
+end
+
 command = case mode
           when :upload
             "swift upload #{option}#{container} #{object}"
@@ -80,8 +83,21 @@ command = case mode
 #exit if yesno == "n"
 
 log_puts.("# #{command}")
-ret = `#{command}`
-log_puts.(ret)
+#ret = `#{command}`
+ret = IO.popen(command, :err => [:child, :out]){|io| io.gets}
+log_puts.("# #{ret}")
+
+if ret =~ /not found/
+  if mode == :download
+    command = "swift list #{container} | grep #{object}"
+    log_puts.("# #{command}")
+    IO.popen(command).each do |object_|
+      command_ = "swift download #{container} #{object_.chomp}"
+      log_puts.("# #{command_}")
+      `#{command_}`
+    end
+  end
+end
 
 # md5sum and size check only for upload
 if mode == :upload
