@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 # encoding: utf-8
-# Version = '20211028-085207'
+# Version = '20211228-105030'
 # ref: https://www.dkrz.de/up/systems/swift/swift
 
 help =->() do
@@ -28,6 +28,12 @@ unless target1=ARGV[0]
 end
 target2=ARGV[1]
 keep_split = ARGV.index("--keep-split")
+log_file = "swift_copy_#{target1.gsub(/\//, '_')}2#{target2.gsub(/\//, '_')}_#{Time.now.strftime("%Y%m%d_%H%M%S")}.log"
+log_out = open(log_file, "w")
+log_puts =-> (arg) do
+  puts arg
+  log_out.puts arg
+end
 
 container_list = IO.popen("swift list") do |io|
   list = {}
@@ -73,9 +79,9 @@ command = case mode
 #yesno = IO::gets.chomp
 #exit if yesno == "n"
 
-warn "# #{command}"
+log_puts.("# #{command}")
 ret = `#{command}`
-warn ret
+log_puts.(ret)
 
 # md5sum and size check only for upload
 if mode == :upload
@@ -106,11 +112,12 @@ if mode == :upload
   segmented_object_list = []
   local_file_list.each do |file|
     unless object_list.include?(file)
+      log_puts.("WARNING: local file, #{file}, does not exist in container, #{container}")
       raise "WARNING: local file, #{file}, does not exist in container, #{container}"
     end
     object = file
     command = "swift stat #{container} #{object}| grep ETag"
-    warn "# #{command}"
+    log_puts.("# #{command}")
     etag_ = `#{command}`
     if etag_ =~ /\"/
       segmented_object_list << object
@@ -119,7 +126,7 @@ if mode == :upload
     object_etag_list[object] = etag
 
     command = "swift stat #{container} #{object}| grep 'Content Length'"
-    warn "# #{command}"
+    log_puts.("# #{command}")
     content_length = `#{command}`.split(":").last.strip.gsub('"', '').chomp
     object_size_list[object] = content_length
   end
@@ -130,13 +137,13 @@ if mode == :upload
   local_file_list.each do |file|
     command = "ls -l #{file}"
     #-rw-rw-r--+ 1 masaomi SG_Employees 32435220453 Nov 23 14:25 archives_2019.tgz
-    warn "# #{command}"
+    log_puts.("# #{command}")
     file_size = `#{command}`.split[4].strip
     local_file_size_list[file] = file_size
 
     unless segmented_object_list.include?(file)
       command = "md5sum #{file}"
-      warn "# #{command}"
+      log_puts.("# #{command}")
       md5sum = `#{command}`.split.first
       local_file_md5sum_list[file] = md5sum
     end
@@ -152,11 +159,11 @@ if mode == :upload
   FileUtils.mkdir_p "split"
   segmented_object_list.each do |file|
     command = "split -b 5000000000 -d #{file} split/#{File.basename(file)}_"
-    warn "# #{command}"
+    log_puts.("# #{command}")
     system command
     Dir["split/#{File.basename(file)}_*"].sort.each do |split_file|
       command = "md5sum #{split_file}"
-      warn "# #{command}"
+      log_puts.("# #{command}")
       md5sum = `#{command}`.split.first
       local_file_split_md5sum_list[file] ||= []
       local_file_split_md5sum_list[file] << md5sum
@@ -176,24 +183,24 @@ if mode == :upload
   local_file_list.each do |file|
     object = file
     unless object_etag_list[object] == local_file_md5sum_list[file]
-      warn "# WARNING: ETag and md5sum are different for #{file}"
-      warn "# container: #{container}, object: #{object}, ETag: #{object_etag_list[object]}"
-      warn "# localfile: #{file}, md5sum: #{local_file_md5sum_list[file]}"
+      log_puts.("# WARNING: ETag and md5sum are different for #{file}")
+      log_puts.("# container: #{container}, object: #{object}, ETag: #{object_etag_list[object]}")
+      log_puts.("# localfile: #{file}, md5sum: #{local_file_md5sum_list[file]}")
       pass_md5sum = false
     else
-      puts "# PASS: md5sum (Etag) check for #{file}: #{object_etag_list[object]}"
+      log_puts.("# PASS: md5sum (Etag) check for #{file}: #{object_etag_list[object]}")
     end
   end
   pass_size = true
   local_file_list.each do |file|
     object = file
     unless object_size_list[object] == local_file_size_list[file]
-      warn "# WARNING: File sizes are different for #{file}"
-      warn "# container: #{container}, object: #{object}, size: #{object_size_list[object]}"
-      warn "# localfile: #{file}, size: #{local_file_size_list[file]}"
+      log_puts.("# WARNING: File sizes are different for #{file}")
+      log_puts.("# container: #{container}, object: #{object}, size: #{object_size_list[object]}")
+      log_puts.("# localfile: #{file}, size: #{local_file_size_list[file]}")
       pass_size = false
     else
-      puts "# PASS: file size check for #{file}: #{object_size_list[object]}"
+      log_puts.("# PASS: file size check for #{file}: #{object_size_list[object]}")
     end
   end
 
@@ -203,3 +210,5 @@ if mode == :upload
   end
 end
 
+warn "# #{log_file} generated"
+log_out.close
