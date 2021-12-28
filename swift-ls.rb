@@ -1,14 +1,15 @@
 #!/usr/bin/env ruby
 # encoding: utf-8
-# Version = '20211228-063116'
+# Version = '20211228-125829'
 
 if ARGV.include?("-h")
   puts <<-eos
   usage:
-   #{File.basename(__FILE__)} (container) (top_directory) (--full)
+   #{File.basename(__FILE__)} (container) (top_directory) (--full) (--lh) (--debug)
 
   option:
    --full: show full list (default: off, only show the top directory (of the ojbect in the container)
+   --lh: show container, object size appropriately
 
   note:
    if no container is specified, top container list will be shown
@@ -25,6 +26,8 @@ if ARGV.include?("-h")
 end
 
 full = ARGV.index("--full")
+lh = ARGV.index("--lh")
+$debug = ARGV.index("--debug")
 container = if ARGV[0] !~ /^--/
               ARGV[0]
             end
@@ -45,26 +48,103 @@ command = if container and top_directory
           else
             "swift list"
           end
+def stat(container, object)
+  command = "swift stat #{container} #{object.chomp} | grep 'Content Length'"
+  puts "# #{command}" if $debug
+  ret = `#{command}`
+  size = ret.split(":").last.strip.to_i # byte
+end
+def readable_size(byte)
+  size = if byte > 2**30
+           "%.2fGB" % (byte.to_f/2**30)
+         elsif byte > 2**20
+           "%.2fMB" % (byte.to_f/2**20)
+         elsif byte > 2**10
+           "%.2fkB" % (byte.to_f/2**10)
+         else
+           "#{byte}B"
+         end
+end
 
 unless custom_process
   puts "# #{command}"
-  system command
+  if lh
+    if container
+      total_size = 0
+      object_size = {}
+      IO.popen(command).each do |object|
+        size = stat(container.chomp, object.chomp)
+        object_size[object.chomp] = size
+        total_size += size
+      end
+      object_size.each do |object, byte|
+        puts "#{object}: #{readable_size(byte)}"
+      end
+      puts "total: #{readable_size(total_size)}"
+    else # only container list
+      IO.popen(command).each do |container|
+        unless container =~ /_segments/
+          container_size = 0
+          subcommand = "swift list #{container.chomp}"
+          puts command if $debug
+          IO.popen(subcommand).each do |object|
+            size = stat(container.chomp, object.chomp)
+            container_size += size
+          end
+          puts "#{container.chomp}: #{readable_size(container_size)}"
+        end
+      end
+    end
+  else
+    system command
+  end
 else
   case custom_process
   when "container"
     puts "# #{command} + only top directories"
     top_directories = {}
-    IO.popen(command).each do |line|
-      top_directory =  line.split('/').first
+    top_directory_size = {}
+    IO.popen(command).each do |object|
+      top_directory =  object.split('/').first
       top_directories[top_directory] = true
+      if lh
+        size = stat(container, object)
+        top_directory_size[top_directory] ||= 0
+        top_directory_size[top_directory] += size
+      end
     end
-    puts top_directories.keys.join("\n")
+    if lh
+      total_size = 0
+      top_directories.keys.each do |top_directory|
+        size = top_directory_size[top_directory]
+        total_size += size
+        size = readable_size(size)
+        puts "#{top_directory.chomp}: #{size}"
+      end
+      puts "total: #{readable_size(total_size)}"
+    else
+      puts top_directories.keys.join
+    end
   when "full"
     IO.popen(command).each do |container|
       unless container =~ /_segments/
-        puts "#{container.chomp}:"
-        subcommand = "swift list #{container}"
-        system subcommand
+        container_size = 0
+        object_size = {}
+        subcommand = "swift list #{container.chomp}"
+        if lh
+          IO.popen(subcommand).each do |object|
+            size = stat(container.chomp, object.chomp)
+            object_size[object.chomp] = size
+            container_size += size
+          end
+          puts "#{container.chomp}: #{readable_size(container_size)}"
+          object_size.each do |object, byte|
+            puts "\t#{object}: #{readable_size(byte)}"
+          end
+        else
+          puts "#{container.chomp}:"
+          system subcommand
+        end
         puts
       end
     end
