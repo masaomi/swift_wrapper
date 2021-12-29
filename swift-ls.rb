@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 # encoding: utf-8
-# Version = '20211228-125829'
+# Version = '20211229-135723'
 
 if ARGV.include?("-h")
   puts <<-eos
@@ -48,14 +48,23 @@ command = if container and top_directory
           else
             "swift list"
           end
-def stat(container, object)
-  command = "swift stat #{container} #{object.chomp} | grep 'Content Length'"
-  puts "# #{command}" if $debug
-  ret = `#{command}`
-  size = ret.split(":").last.strip.to_i # byte
+def stat(container, object=nil)
+  if container and object
+    command = "swift stat #{container} #{object.chomp} | grep 'Content Length'"
+    puts "# #{command}" if $debug
+    ret = `#{command}`
+    size = ret.split(":").last.strip.to_i # byte
+  elsif container
+    command = "swift stat #{container} | grep Bytes"
+    puts "# #{command}" if $debug
+    ret = `#{command}`
+    size = ret.split(":").last.strip.to_i # byte
+  end
 end
 def readable_size(byte)
-  size = if byte > 2**30
+  size = if byte > 2**40
+           "%.2fTB" % (byte.to_f/2**40)
+         elsif byte > 2**20
            "%.2fGB" % (byte.to_f/2**30)
          elsif byte > 2**20
            "%.2fMB" % (byte.to_f/2**20)
@@ -69,7 +78,7 @@ end
 unless custom_process
   puts "# #{command}"
   if lh
-    if container
+    if container and (top_directory or full)
       total_size = 0
       object_size = {}
       IO.popen(command).each do |object|
@@ -81,7 +90,7 @@ unless custom_process
         puts "#{object}: #{readable_size(byte)}"
       end
       puts "total: #{readable_size(total_size)}"
-    else # only container list
+    elsif full
       IO.popen(command).each do |container|
         unless container =~ /_segments/
           container_size = 0
@@ -94,6 +103,16 @@ unless custom_process
           puts "#{container.chomp}: #{readable_size(container_size)}"
         end
       end
+    else # only container list
+      total = 0
+      IO.popen(command).each do |container|
+        unless container =~ /_segments/
+          container_size = stat(container.chomp)
+          total += container_size
+          puts "#{container.chomp}: #{readable_size(container_size)}"
+        end
+      end
+      puts "# total: #{readable_size(total)}"
     end
   else
     system command
