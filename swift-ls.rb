@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 # encoding: utf-8
-# Version = '20211229-135723'
+# Version = '20211231-035749'
 
 if ARGV.include?("-h")
   puts <<-eos
@@ -142,7 +142,7 @@ else
       end
       puts "total: #{readable_size(total_size)}"
     else
-      puts top_directories.keys.join
+      puts top_directories.keys.join("\n")
     end
   when "full"
     IO.popen(command).each do |container|
