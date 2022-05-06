@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 # encoding: utf-8
-# Version = '20211228-140845'
+# Version = '20220506-155413'
 # ref: https://www.dkrz.de/up/systems/swift/swift
 
 help =->() do
@@ -127,6 +127,7 @@ if mode == :upload
   object_size_list = {}
   segmented_object_list = []
   local_file_list.each do |file|
+    file = file.gsub(/^\//, '')
     unless object_list.include?(file)
       log_puts.("WARNING: local file, #{file}, does not exist in container, #{container}")
       raise "WARNING: local file, #{file}, does not exist in container, #{container}"
@@ -197,7 +198,7 @@ if mode == :upload
   # check local files and container objects
   pass_md5sum = true 
   local_file_list.each do |file|
-    object = file
+    object = file.gsub(/^\//, '')
     unless object_etag_list[object] == local_file_md5sum_list[file]
       log_puts.("# WARNING: ETag and md5sum are different for #{file}")
       log_puts.("# container: #{container}, object: #{object}, ETag: #{object_etag_list[object]}")
@@ -209,7 +210,7 @@ if mode == :upload
   end
   pass_size = true
   local_file_list.each do |file|
-    object = file
+    object = file.gsub(/^\//, '')
     unless object_size_list[object] == local_file_size_list[file]
       log_puts.("# WARNING: File sizes are different for #{file}")
       log_puts.("# container: #{container}, object: #{object}, size: #{object_size_list[object]}")
